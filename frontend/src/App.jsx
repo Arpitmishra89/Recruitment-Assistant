@@ -77,10 +77,6 @@ export default function App() {
     <main className="app-container">
       {/* Header */}
       <header className="app-header">
-        <div className="brand-badge">
-          <span className="pulse-dot"></span>
-          AI Recruitment Assistant • Groq LLM
-        </div>
         <h1 className="main-title">
           Resume & Job <span className="gradient-text">Alignment Analyzer</span>
         </h1>
@@ -140,39 +136,6 @@ export default function App() {
             </>
           )}
         </button>
-
-        <div className="sample-doc-buttons">
-          <button
-            type="button"
-            className="btn-sample"
-            onClick={handleLoadSamples}
-            disabled={loadingSample || isLoading}
-            id="load-samples-btn"
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="7 10 12 15 17 10"></polyline>
-              <line x1="12" y1="15" x2="12" y2="3"></line>
-            </svg>
-            {loadingSample ? 'Loading...' : 'Load Sample Resume & JD'}
-          </button>
-
-          {(resumeFile || jdFile || matchResult) && (
-            <button
-              type="button"
-              className="btn-sample"
-              onClick={handleReset}
-              disabled={isLoading}
-              id="reset-btn"
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="1 4 1 10 7 10"></polyline>
-                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
-              </svg>
-              Reset
-            </button>
-          )}
-        </div>
       </div>
 
       {/* Error Message */}

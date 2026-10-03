@@ -914,7 +914,7 @@ Update this table as work progresses.
 | 7     | Matching engine             | Completed                                  |
 | 8     | Document-based matching API | Completed                                  |
 | 9     | Backend testing             | Completed (20 tests passing)               |
-| 10    | Frontend                    | In progress                                |
+| 10    | Frontend                    | Completed                                  |
 | 11    | Database and caching        | Pending                                    |
 | 12    | Evidence-based matching     | Pending                                    |
 | 13    | Voice agent                 | Planned                                    |

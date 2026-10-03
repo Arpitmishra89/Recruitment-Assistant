@@ -904,17 +904,17 @@ Update this table as work progresses.
 
 | Batch | Component                   | Status                                     |
 | ----- | --------------------------- | ------------------------------------------ |
-| 0     | Environment and setup       | In progress                                |
-| 1     | Configuration and schemas   | In progress                                |
-| 2     | PDF parsing                 | Implemented, needs verification            |
-| 3     | LLM service                 | Implemented, needs verification            |
-| 4     | Resume extraction agent     | Implemented, needs verification            |
-| 5     | Job extraction agent        | Implemented, needs verification            |
-| 6     | Skill normalization         | Implemented, needs verification            |
-| 7     | Matching engine             | Implemented, needs verification            |
-| 8     | Document-based matching API | Needs update for JD PDF upload and testing |
-| 9     | Backend testing             | Pending                                    |
-| 10    | Frontend                    | Pending                                    |
+| 0     | Environment and setup       | Completed                                  |
+| 1     | Configuration and schemas   | Completed                                  |
+| 2     | PDF parsing                 | Completed                                  |
+| 3     | LLM service                 | Completed                                  |
+| 4     | Resume extraction agent     | Completed                                  |
+| 5     | Job extraction agent        | Completed                                  |
+| 6     | Skill normalization         | Completed                                  |
+| 7     | Matching engine             | Completed                                  |
+| 8     | Document-based matching API | Completed                                  |
+| 9     | Backend testing             | Completed (20 tests passing)               |
+| 10    | Frontend                    | In progress                                |
 | 11    | Database and caching        | Pending                                    |
 | 12    | Evidence-based matching     | Pending                                    |
 | 13    | Voice agent                 | Planned                                    |

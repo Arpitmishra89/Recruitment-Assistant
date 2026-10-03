@@ -5,6 +5,7 @@ from app.agents.job_agent import job_agent
 from app.agents.cv_agent import cv_agent
 from app.services.pdf_parser import extract_text_from_pdf
 from app.services.matching_engine import calculate_match
+from app.schemas.matching_schema import AnalysisSummaryResponse
 
 router = APIRouter(prefix="/api/v1/matching", tags=["Matching"])
 
@@ -23,7 +24,7 @@ def _validate_pdf_file(file: UploadFile, field_label: str) -> None:
         )
 
 
-@router.post("/analyze")
+@router.post("/analyze", response_model=AnalysisSummaryResponse)
 async def analyze_match(
     resume_file: UploadFile = File(..., description="Candidate Resume PDF"),
     jd_file: UploadFile = File(..., description="Job Description PDF")
@@ -57,11 +58,17 @@ async def analyze_match(
 
         match_result = calculate_match(job_analysis, cv_analysis)
 
-        return {
-            "job_analysis": job_analysis.model_dump(),
-            "resume_analysis": cv_analysis.model_dump(),
-            "matching_result": match_result.model_dump()
-        }
+        return AnalysisSummaryResponse(
+            candidate_name=cv_analysis.candidate_name,
+            job_title=job_analysis.job_title,
+            company=job_analysis.company,
+            match_score=match_result.match_score,
+            required_skill_score=match_result.required_skill_score,
+            preferred_skill_score=match_result.preferred_skill_score,
+            matched_skills=match_result.matched_required_skills + match_result.matched_preferred_skills,
+            missing_skills=match_result.missing_required_skills + match_result.missing_preferred_skills,
+            recommendations=match_result.recommendations
+        )
 
     except HTTPException:
         raise

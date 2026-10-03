@@ -86,14 +86,13 @@ def test_analyze_success(mock_job_analyze, mock_cv_analyze):
 
     assert response.status_code == 200
     data = response.json()
-    assert "job_analysis" in data
-    assert "resume_analysis" in data
-    assert "matching_result" in data
-
-    matching = data["matching_result"]
-    assert matching["required_skill_score"] == 100.0
-    assert matching["preferred_skill_score"] == 50.0
-    assert matching["match_score"] == 90.0
-    assert "Python" in matching["matched_required_skills"]
-    assert "Docker" in matching["matched_preferred_skills"]
-    assert "AWS" in matching["missing_preferred_skills"]
+    assert data["candidate_name"] == "Alex Mercer"
+    assert data["job_title"] == "Senior Backend Engineer"
+    assert data["company"] == "Acme Corp"
+    assert data["match_score"] == 90.0
+    assert data["required_skill_score"] == 100.0
+    assert data["preferred_skill_score"] == 50.0
+    assert "Python" in data["matched_skills"]
+    assert "Docker" in data["matched_skills"]
+    assert "AWS" in data["missing_skills"]
+    assert len(data["recommendations"]) > 0

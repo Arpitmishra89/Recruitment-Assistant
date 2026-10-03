@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function MatchReport({ result }) {
+export default function MatchReport({ result, onStartVoice }) {
   if (!result) return null;
 
   const {
@@ -91,6 +91,37 @@ export default function MatchReport({ result }) {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Glowing Voice Agent CTA Banner */}
+      <div className="voice-cta-banner">
+        <div className="voice-cta-glow"></div>
+        <div className="voice-cta-left">
+          <div className="voice-cta-badge">
+            <span className="pulse-dot"></span>
+            Interactive Voice AI • Zero Audio Cost
+          </div>
+          <h3 className="voice-cta-title">Interact with the AI Recruiter Voice Agent</h3>
+          <p className="voice-cta-desc">
+            Clear your doubts, discuss skill gaps, or do a live mock interview with the agent in real time.
+          </p>
+        </div>
+        <button
+          className="btn-launch-voice"
+          onClick={onStartVoice}
+          id="launch-voice-agent-btn"
+          type="button"
+        >
+          <span className="voice-btn-orb">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+              <line x1="12" y1="19" x2="12" y2="23"></line>
+              <line x1="8" y1="23" x2="16" y2="23"></line>
+            </svg>
+          </span>
+          <span>Talk with Voice Agent</span>
+        </button>
       </div>
 
       {/* Skills Comparison */}

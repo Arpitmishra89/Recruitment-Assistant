@@ -2,15 +2,16 @@ import React, { useState } from 'react';
 import ResumeUpload from './components/ResumeUpload';
 import JobInput from './components/JobInput';
 import MatchReport from './components/MatchReport';
+import VoiceChat from './components/VoiceChat';
 import { analyzeMatch } from './services/api';
 
 export default function App() {
   const [resumeFile, setResumeFile] = useState(null);
   const [jdFile, setJdFile] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [loadingSample, setLoadingSample] = useState(false);
   const [error, setError] = useState(null);
   const [matchResult, setMatchResult] = useState(null);
+  const [isVoiceActive, setIsVoiceActive] = useState(false);
 
   const handleAnalyze = async () => {
     if (!resumeFile || !jdFile) {
@@ -162,7 +163,20 @@ export default function App() {
       )}
 
       {/* Match Results */}
-      {matchResult && <MatchReport result={matchResult} />}
+      {matchResult && (
+        <MatchReport
+          result={matchResult}
+          onStartVoice={() => setIsVoiceActive(true)}
+        />
+      )}
+
+      {/* Voice Assistant Modal */}
+      {isVoiceActive && matchResult && (
+        <VoiceChat
+          context={matchResult}
+          onClose={() => setIsVoiceActive(false)}
+        />
+      )}
     </main>
   );
 }

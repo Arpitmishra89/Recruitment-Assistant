@@ -96,3 +96,43 @@ def test_analyze_success(mock_job_analyze, mock_cv_analyze):
     assert "Docker" in data["matched_skills"]
     assert "AWS" in data["missing_skills"]
     assert len(data["recommendations"]) > 0
+
+
+@patch("app.api.routes.voice_routes.llm_service.chat_completion")
+def test_voice_greeting(mock_chat):
+    mock_chat.return_value = "Hello Alex! Welcome. You have a 90% alignment for the Senior Backend Engineer role."
+    response = client.post(
+        "/api/v1/voice/greeting",
+        json={
+            "candidate_name": "Alex Mercer",
+            "job_title": "Senior Backend Engineer",
+            "company": "Acme Corp",
+            "match_score": 90.0,
+            "matched_skills": ["Python", "FastAPI"],
+            "missing_skills": ["AWS"],
+            "recommendations": []
+        }
+    )
+    assert response.status_code == 200
+    assert "90%" in response.json()["reply"]
+
+
+@patch("app.api.routes.voice_routes.llm_service.chat_completion")
+def test_voice_chat(mock_chat):
+    mock_chat.return_value = "You can highlight your Docker and cloud deployment experience to bridge the AWS gap."
+    response = client.post(
+        "/api/v1/voice/chat",
+        json={
+            "candidate_name": "Alex Mercer",
+            "job_title": "Senior Backend Engineer",
+            "company": "Acme Corp",
+            "match_score": 90.0,
+            "matched_skills": ["Python"],
+            "missing_skills": ["AWS"],
+            "recommendations": [],
+            "user_message": "How do I address the AWS gap?"
+        }
+    )
+    assert response.status_code == 200
+    assert "AWS" in response.json()["reply"]
+

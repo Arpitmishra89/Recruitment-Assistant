@@ -917,7 +917,7 @@ Update this table as work progresses.
 | 10    | Frontend                    | Completed                                  |
 | 11    | Database and caching        | Pending                                    |
 | 12    | Evidence-based matching     | Pending                                    |
-| 13    | Voice agent                 | Planned                                    |
+| 13    | Voice agent                 | Completed (Web Speech + Groq LLM)          |
 | 14    | Application automation      | Planned                                    |
 
 **Status definitions:**

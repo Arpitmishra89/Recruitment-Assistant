@@ -27,5 +27,18 @@ class LLMService:
 
         return json.loads(content)
 
+    def chat_completion(self, system_prompt: str, messages: list[dict], temperature: float = 0.6) -> str:
+        all_messages = [{"role": "system", "content": system_prompt}] + messages
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=all_messages,
+            temperature=temperature,
+            max_tokens=800
+        )
+        content = response.choices[0].message.content
+        if not content:
+            raise ValueError("The LLM returned an empty response.")
+        return content.strip()
+
 
 llm_service = LLMService()

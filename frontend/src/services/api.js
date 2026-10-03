@@ -28,3 +28,48 @@ export async function analyzeMatch(resumeFile, jdFile) {
 
   return await response.json();
 }
+
+export async function fetchVoiceGreeting(context) {
+  const response = await fetch(`${API_BASE_URL}/voice/greeting`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(context),
+  });
+
+  if (!response.ok) {
+    let detail = 'Failed to load voice greeting.';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {}
+    throw new Error(detail);
+  }
+
+  const data = await response.json();
+  return data.reply;
+}
+
+export async function sendVoiceMessage(context, userMessage, conversationHistory = []) {
+  const response = await fetch(`${API_BASE_URL}/voice/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...context,
+      user_message: userMessage,
+      conversation_history: conversationHistory,
+    }),
+  });
+
+  if (!response.ok) {
+    let detail = 'Failed to process voice query.';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {}
+    throw new Error(detail);
+  }
+
+  const data = await response.json();
+  return data.reply;
+}
+

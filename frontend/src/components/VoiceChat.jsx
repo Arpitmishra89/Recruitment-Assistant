@@ -48,7 +48,7 @@ export default function VoiceChat({ context, onClose }) {
     if (audioContextRef.current) {
       try {
         audioContextRef.current.close();
-      } catch (err) {}
+      } catch (err) { }
       audioContextRef.current = null;
     }
   };
@@ -138,7 +138,7 @@ export default function VoiceChat({ context, onClose }) {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
         mediaRecorderRef.current.stop();
-      } catch (err) {}
+      } catch (err) { }
     }
   };
 
@@ -189,17 +189,19 @@ export default function VoiceChat({ context, onClose }) {
             audioContextRef.current = audioCtx;
             const source = audioCtx.createMediaStreamSource(stream);
             const analyser = audioCtx.createAnalyser();
-            analyser.fftSize = 256;
-            analyser.smoothingTimeConstant = 0.2;
+            analyser.fftSize = 512;
+            analyser.smoothingTimeConstant = 0.1;
             source.connect(analyser);
 
-            const bufferLength = analyser.frequencyBinCount;
+            const bufferLength = analyser.fftSize;
             const dataArray = new Uint8Array(bufferLength);
 
             let userHasSpoken = false;
             let silenceStartTime = null;
-            const SPEECH_VOLUME_THRESHOLD = 18; // Volume threshold on 0-255 scale
-            const SILENCE_TIMEOUT_MS = 1300;     // 1.3 seconds pause auto-sends
+            // Time-domain amplitude threshold: 0-128 scale deviation from center (128)
+            // Ambient noise is ~0.8-1.5; normal speech is ~6.0-25.0+
+            const SPEECH_AMPLITUDE_THRESHOLD = 4.5;
+            const SILENCE_TIMEOUT_MS = 950; // 0.95 seconds pause triggers send
 
             vadIntervalRef.current = setInterval(() => {
               if (!mediaRecorderRef.current || mediaRecorderRef.current.state !== 'recording') {
@@ -207,27 +209,27 @@ export default function VoiceChat({ context, onClose }) {
                 return;
               }
 
-              analyser.getByteFrequencyData(dataArray);
-              let sum = 0;
+              analyser.getByteTimeDomainData(dataArray);
+              let deviationSum = 0;
               for (let i = 0; i < bufferLength; i++) {
-                sum += dataArray[i];
+                deviationSum += Math.abs(dataArray[i] - 128);
               }
-              const avgVolume = sum / bufferLength;
+              const currentAmplitude = deviationSum / bufferLength;
 
-              if (avgVolume > SPEECH_VOLUME_THRESHOLD) {
+              if (currentAmplitude > SPEECH_AMPLITUDE_THRESHOLD) {
                 userHasSpoken = true;
                 silenceStartTime = null;
               } else if (userHasSpoken) {
-                // User spoke previously, now measuring natural pause
+                // User finished speaking, counting natural pause
                 if (silenceStartTime === null) {
                   silenceStartTime = Date.now();
                 } else if (Date.now() - silenceStartTime >= SILENCE_TIMEOUT_MS) {
-                  // Automatic pause threshold reached! Send without clicking
+                  // Promptly send as soon as candidate pauses
                   cleanupVAD();
                   stopListening();
                 }
               }
-            }, 75);
+            }, 60);
           }
         } catch (vadErr) {
           console.warn('VAD AudioContext setup warning:', vadErr);
@@ -429,7 +431,7 @@ export default function VoiceChat({ context, onClose }) {
               <line x1="12" y1="19" x2="12" y2="23"></line>
               <line x1="8" y1="23" x2="16" y2="23"></line>
             </svg>
-            <span>{status === 'listening' ? 'Listening... (or Click to Send)' : 'Push to Talk'}</span>
+            <span>{status === 'listening' ? 'Listening...' : 'Push to Talk'}</span>
           </button>
 
           <form

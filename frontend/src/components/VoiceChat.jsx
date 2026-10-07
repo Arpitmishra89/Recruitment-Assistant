@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { fetchVoiceGreeting, sendVoiceMessage } from '../services/api';
+import { fetchVoiceGreeting, sendVoiceMessage, transcribeVoiceAudio } from '../services/api';
 
 export default function VoiceChat({ context, onClose }) {
   const [messages, setMessages] = useState([]);
@@ -8,7 +8,9 @@ export default function VoiceChat({ context, onClose }) {
   const [isMuted, setIsMuted] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
 
-  const recognitionRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const audioStreamRef = useRef(null);
   const synthRef = useRef(window.speechSynthesis || null);
   const chatBottomRef = useRef(null);
   const isComponentMounted = useRef(true);
@@ -116,75 +118,97 @@ export default function VoiceChat({ context, onClose }) {
   };
 
   const stopListening = () => {
-    if (recognitionRef.current) {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
-        recognitionRef.current.abort();
+        mediaRecorderRef.current.stop();
       } catch (err) {}
-      recognitionRef.current = null;
-    }
-    if (isComponentMounted.current) {
-      setStatus((prev) => (prev === 'listening' ? 'idle' : prev));
     }
   };
 
-  const startListening = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setErrorMsg('Speech recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge.');
+  const startListening = async () => {
+    stopSpeaking();
+
+    // If already recording, stop and transcribe
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      stopListening();
       return;
     }
 
-    stopSpeaking();
-
-    // Clean up previous recognition instance if still active
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.abort();
-      } catch (err) {}
-      recognitionRef.current = null;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setErrorMsg('Microphone access is not supported by your browser.');
+      return;
     }
 
     try {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = 'en-US';
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioStreamRef.current = stream;
 
-      recognition.onstart = () => {
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : (MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg');
+
+      const mediaRecorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstart = () => {
         if (isComponentMounted.current) {
           setStatus('listening');
         }
       };
 
-      recognition.onresult = (event) => {
-        const transcript = event.results[0]?.[0]?.transcript;
-        if (transcript && transcript.trim()) {
-          handleSendMessage(transcript.trim());
-        }
-      };
+      mediaRecorder.onstop = async () => {
+        // Cleanly release hardware mic tracks
+        stream.getTracks().forEach((track) => track.stop());
+        audioStreamRef.current = null;
+        mediaRecorderRef.current = null;
 
-      recognition.onerror = (event) => {
-        console.warn('Speech recognition error:', event.error);
-        if (isComponentMounted.current) {
-          if (event.error !== 'no-speech' && event.error !== 'aborted') {
-            setErrorMsg(`Mic note (${event.error}). Please click Push to Talk.`);
+        if (!isComponentMounted.current) return;
+
+        const chunks = audioChunksRef.current;
+        if (!chunks || chunks.length === 0) {
+          setStatus('idle');
+          return;
+        }
+
+        const audioBlob = new Blob(chunks, { type: mimeType });
+        if (audioBlob.size < 800) {
+          // Accidental quick click
+          setStatus('idle');
+          return;
+        }
+
+        setStatus('thinking');
+        try {
+          const transcript = await transcribeVoiceAudio(audioBlob);
+          if (!isComponentMounted.current) return;
+
+          if (transcript && transcript.trim()) {
+            handleSendMessage(transcript.trim());
+          } else {
+            setStatus('idle');
           }
-          setStatus((prev) => (prev === 'listening' ? 'idle' : prev));
+        } catch (err) {
+          console.warn('Transcription error:', err);
+          if (isComponentMounted.current) {
+            setErrorMsg('Transcription note: ' + err.message);
+            setStatus('idle');
+          }
         }
       };
 
-      recognition.onend = () => {
-        if (isComponentMounted.current) {
-          setStatus((prev) => (prev === 'listening' ? 'idle' : prev));
-        }
-      };
-
-      recognitionRef.current = recognition;
-      recognition.start();
+      mediaRecorder.start();
     } catch (err) {
-      console.warn('Speech recognition start failed:', err);
+      console.warn('Microphone capture error:', err);
       if (isComponentMounted.current) {
-        setStatus((prev) => (prev === 'listening' ? 'idle' : prev));
+        setErrorMsg('Microphone access denied. Please allow microphone permissions.');
+        setStatus('idle');
       }
     }
   };
@@ -323,7 +347,7 @@ export default function VoiceChat({ context, onClose }) {
             type="button"
             className={`btn-mic-toggle ${status === 'listening' ? 'active' : ''}`}
             onClick={status === 'listening' ? stopListening : startListening}
-            title={status === 'listening' ? 'Stop Listening' : 'Speak with Microphone'}
+            title={status === 'listening' ? 'Stop recording and send to recruiter' : 'Speak with Microphone'}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
@@ -331,7 +355,7 @@ export default function VoiceChat({ context, onClose }) {
               <line x1="12" y1="19" x2="12" y2="23"></line>
               <line x1="8" y1="23" x2="16" y2="23"></line>
             </svg>
-            <span>{status === 'listening' ? 'Listening...' : 'Push to Talk'}</span>
+            <span>{status === 'listening' ? 'Stop & Send' : 'Push to Talk'}</span>
           </button>
 
           <form

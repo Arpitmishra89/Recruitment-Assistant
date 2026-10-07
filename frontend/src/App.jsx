@@ -107,37 +107,28 @@ export default function App() {
       </section>
 
       {/* Actions */}
-      <div className="actions-row">
-        <button
-          className="analyze-button"
-          onClick={handleAnalyze}
-          disabled={!resumeFile || !jdFile || isLoading}
-          id="analyze-match-btn"
-        >
-          {isLoading ? (
-            <>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="spinner-icon">
-                <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="12" />
-              </svg>
-              Analyzing Alignment...
-            </>
-          ) : (
-            <>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2v4"></path>
-                <path d="M12 18v4"></path>
-                <path d="M4.93 4.93l2.83 2.83"></path>
-                <path d="M16.24 16.24l2.83 2.83"></path>
-                <path d="M2 12h4"></path>
-                <path d="M18 12h4"></path>
-                <path d="M4.93 19.07l2.83-2.83"></path>
-                <path d="M16.24 7.76l2.83-2.83"></path>
-              </svg>
-              Analyze Alignment
-            </>
-          )}
-        </button>
-      </div>
+      {!isLoading && (
+        <div className="actions-row">
+          <button
+            className="analyze-button"
+            onClick={handleAnalyze}
+            disabled={!resumeFile || !jdFile}
+            id="analyze-match-btn"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2v4"></path>
+              <path d="M12 18v4"></path>
+              <path d="M4.93 4.93l2.83 2.83"></path>
+              <path d="M16.24 16.24l2.83 2.83"></path>
+              <path d="M2 12h4"></path>
+              <path d="M18 12h4"></path>
+              <path d="M4.93 19.07l2.83-2.83"></path>
+              <path d="M16.24 7.76l2.83-2.83"></path>
+            </svg>
+            Analyze Alignment
+          </button>
+        </div>
+      )}
 
       {/* Error Message */}
       {error && (

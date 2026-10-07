@@ -73,3 +73,25 @@ export async function sendVoiceMessage(context, userMessage, conversationHistory
   return data.reply;
 }
 
+export async function transcribeVoiceAudio(audioBlob) {
+  const formData = new FormData();
+  formData.append('audio_file', audioBlob, 'recording.webm');
+
+  const response = await fetch(`${API_BASE_URL}/voice/transcribe`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    let detail = 'Failed to transcribe audio.';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {}
+    throw new Error(detail);
+  }
+
+  const data = await response.json();
+  return data.transcript;
+}
+

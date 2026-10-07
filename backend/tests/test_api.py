@@ -158,3 +158,15 @@ def test_voice_chat(mock_chat):
     assert response.status_code == 200
     assert "AWS" in response.json()["reply"]
 
+
+@patch("app.api.routes.voice_routes.stt_service.transcribe_audio")
+def test_voice_transcribe(mock_transcribe):
+    mock_transcribe.return_value = "Hello, what skills am I missing?"
+    dummy_audio = io.BytesIO(b"RIFF....WAVEfmt ....data....")
+    response = client.post(
+        "/api/v1/voice/transcribe",
+        files={"audio_file": ("test.wav", dummy_audio, "audio/wav")}
+    )
+    assert response.status_code == 200
+    assert response.json()["transcript"] == "Hello, what skills am I missing?"
+

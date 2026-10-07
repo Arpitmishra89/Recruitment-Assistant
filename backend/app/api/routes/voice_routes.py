@@ -1,7 +1,9 @@
+import asyncio
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel, Field
 from app.services.llm_service import llm_service
+from app.services.stt_service import stt_service
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +31,10 @@ class VoiceChatRequest(VoiceContext):
 
 class VoiceResponse(BaseModel):
     reply: str
+
+
+class TranscribeResponse(BaseModel):
+    transcript: str
 
 
 def _build_system_prompt(ctx: VoiceContext) -> str:
@@ -117,4 +123,42 @@ async def voice_chat(req: VoiceChatRequest):
         raise HTTPException(
             status_code=502,
             detail=f"Voice chat failed: {str(exc)}"
+        )
+
+
+@router.post("/transcribe", response_model=TranscribeResponse)
+async def transcribe_audio_file(
+    audio_file: UploadFile = File(..., description="Audio recording file (webm, wav, m4a, mp3, ogg)")
+):
+    if not audio_file:
+        raise HTTPException(status_code=400, detail="No audio file uploaded.")
+
+    try:
+        audio_bytes = await audio_file.read()
+        if not audio_bytes:
+            raise HTTPException(status_code=400, detail="Uploaded audio file is empty.")
+
+        filename = audio_file.filename or "recording.webm"
+        content_type = audio_file.content_type or "audio/webm"
+
+        transcript = await asyncio.to_thread(
+            stt_service.transcribe_audio,
+            audio_bytes,
+            filename,
+            content_type
+        )
+
+        return TranscribeResponse(transcript=transcript)
+
+    except HTTPException:
+        raise
+
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    except Exception as exc:
+        logger.error("Audio transcription failed: %s", str(exc))
+        raise HTTPException(
+            status_code=502,
+            detail=f"Speech transcription failed: {str(exc)}"
         )

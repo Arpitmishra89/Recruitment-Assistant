@@ -11,6 +11,8 @@ export default function VoiceChat({ context, onClose }) {
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const audioStreamRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const vadIntervalRef = useRef(null);
   const synthRef = useRef(window.speechSynthesis || null);
   const chatBottomRef = useRef(null);
   const isComponentMounted = useRef(true);
@@ -32,10 +34,24 @@ export default function VoiceChat({ context, onClose }) {
 
     return () => {
       isComponentMounted.current = false;
+      cleanupVAD();
       stopSpeaking();
       stopListening();
     };
   }, []);
+
+  const cleanupVAD = () => {
+    if (vadIntervalRef.current) {
+      clearInterval(vadIntervalRef.current);
+      vadIntervalRef.current = null;
+    }
+    if (audioContextRef.current) {
+      try {
+        audioContextRef.current.close();
+      } catch (err) {}
+      audioContextRef.current = null;
+    }
+  };
 
   const loadInitialGreeting = async () => {
     if (hasFetchedGreetingRef.current) return;
@@ -91,13 +107,13 @@ export default function VoiceChat({ context, onClose }) {
     utterance.onend = () => {
       if (isComponentMounted.current) {
         setStatus('idle');
-        // Auto-listen after speech completes if unmuted
+        // Automatically re-arm mic hands-free after recruiter finishes speaking
         if (!isMuted) {
           setTimeout(() => {
             if (isComponentMounted.current) {
               startListening();
             }
-          }, 300);
+          }, 400);
         }
       }
     };
@@ -118,6 +134,7 @@ export default function VoiceChat({ context, onClose }) {
   };
 
   const stopListening = () => {
+    cleanupVAD();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
         mediaRecorderRef.current.stop();
@@ -128,11 +145,13 @@ export default function VoiceChat({ context, onClose }) {
   const startListening = async () => {
     stopSpeaking();
 
-    // If already recording, stop and transcribe
+    // If already recording, stop and trigger processing
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       stopListening();
       return;
     }
+
+    cleanupVAD();
 
     if (!navigator.mediaDevices?.getUserMedia) {
       setErrorMsg('Microphone access is not supported by your browser.');
@@ -161,9 +180,63 @@ export default function VoiceChat({ context, onClose }) {
         if (isComponentMounted.current) {
           setStatus('listening');
         }
+
+        // Set up real-time Voice Activity Detection (VAD) via Web Audio API Analyser
+        try {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (AudioContextClass) {
+            const audioCtx = new AudioContextClass();
+            audioContextRef.current = audioCtx;
+            const source = audioCtx.createMediaStreamSource(stream);
+            const analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 256;
+            analyser.smoothingTimeConstant = 0.2;
+            source.connect(analyser);
+
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+
+            let userHasSpoken = false;
+            let silenceStartTime = null;
+            const SPEECH_VOLUME_THRESHOLD = 18; // Volume threshold on 0-255 scale
+            const SILENCE_TIMEOUT_MS = 1300;     // 1.3 seconds pause auto-sends
+
+            vadIntervalRef.current = setInterval(() => {
+              if (!mediaRecorderRef.current || mediaRecorderRef.current.state !== 'recording') {
+                cleanupVAD();
+                return;
+              }
+
+              analyser.getByteFrequencyData(dataArray);
+              let sum = 0;
+              for (let i = 0; i < bufferLength; i++) {
+                sum += dataArray[i];
+              }
+              const avgVolume = sum / bufferLength;
+
+              if (avgVolume > SPEECH_VOLUME_THRESHOLD) {
+                userHasSpoken = true;
+                silenceStartTime = null;
+              } else if (userHasSpoken) {
+                // User spoke previously, now measuring natural pause
+                if (silenceStartTime === null) {
+                  silenceStartTime = Date.now();
+                } else if (Date.now() - silenceStartTime >= SILENCE_TIMEOUT_MS) {
+                  // Automatic pause threshold reached! Send without clicking
+                  cleanupVAD();
+                  stopListening();
+                }
+              }
+            }, 75);
+          }
+        } catch (vadErr) {
+          console.warn('VAD AudioContext setup warning:', vadErr);
+        }
       };
 
       mediaRecorder.onstop = async () => {
+        cleanupVAD();
+
         // Cleanly release hardware mic tracks
         stream.getTracks().forEach((track) => track.stop());
         audioStreamRef.current = null;
@@ -206,6 +279,7 @@ export default function VoiceChat({ context, onClose }) {
       mediaRecorder.start();
     } catch (err) {
       console.warn('Microphone capture error:', err);
+      cleanupVAD();
       if (isComponentMounted.current) {
         setErrorMsg('Microphone access denied. Please allow microphone permissions.');
         setStatus('idle');
@@ -307,7 +381,7 @@ export default function VoiceChat({ context, onClose }) {
           <div className="status-label">
             {status === 'initializing' && 'Connecting with AI Recruiter...'}
             {status === 'speaking' && 'AI Recruiter is speaking aloud...'}
-            {status === 'listening' && 'Listening to you... Speak now'}
+            {status === 'listening' && 'Listening to you... (Speak naturally, auto-sends on pause)'}
             {status === 'thinking' && 'Analyzing and formulating response...'}
             {status === 'idle' && 'Click mic to speak or choose a question below'}
           </div>
@@ -355,7 +429,7 @@ export default function VoiceChat({ context, onClose }) {
               <line x1="12" y1="19" x2="12" y2="23"></line>
               <line x1="8" y1="23" x2="16" y2="23"></line>
             </svg>
-            <span>{status === 'listening' ? 'Stop & Send' : 'Push to Talk'}</span>
+            <span>{status === 'listening' ? 'Listening... (or Click to Send)' : 'Push to Talk'}</span>
           </button>
 
           <form

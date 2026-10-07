@@ -24,7 +24,8 @@ class LLMService:
                         {"role": "user", "content": user_prompt}
                     ],
                     response_format={"type": "json_object"},
-                    temperature=0.1
+                    temperature=0.0,
+                    seed=42
                 )
 
                 content = response.choices[0].message.content

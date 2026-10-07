@@ -18,19 +18,30 @@ def calculate_coverage(
         if skill and skill.strip()
     }
 
+    # Deduplicate job skills by normalized name so the denominator is strictly unique
+    seen_normalized = set()
+    deduped_job_skills = []
+    for skill in job_skills:
+        if not skill or not skill.strip():
+            continue
+        norm = normalize_skill(skill)
+        if norm not in seen_normalized:
+            seen_normalized.add(norm)
+            deduped_job_skills.append(skill.strip())
+
+    if not deduped_job_skills:
+        return 0.0, [], []
+
     matched = []
     missing = []
 
-    for skill in job_skills:
+    for skill in deduped_job_skills:
         if normalize_skill(skill) in normalized_resume:
             matched.append(skill)
         else:
             missing.append(skill)
 
-    if not job_skills:
-        return 0.0, matched, missing
-
-    score = len(matched) / len(job_skills) * 100
+    score = len(matched) / len(deduped_job_skills) * 100
     return round(score, 2), matched, missing
 
 

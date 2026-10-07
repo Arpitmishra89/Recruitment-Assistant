@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 from fastapi import APIRouter, UploadFile, File, HTTPException
 
 from app.agents.job_agent import job_agent
@@ -6,10 +7,16 @@ from app.agents.cv_agent import cv_agent
 from app.services.pdf_parser import extract_text_from_pdf
 from app.services.matching_engine import calculate_match
 from app.schemas.matching_schema import AnalysisSummaryResponse
+from app.schemas.resume_schema import ResumeAnalysis
+from app.schemas.job_schema import JobAnalysis
 
 router = APIRouter(prefix="/api/v1/matching", tags=["Matching"])
 
 MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB limit
+
+# Document fingerprint caches for deterministic results and fast reuse
+_cv_cache: dict[str, ResumeAnalysis] = {}
+_job_cache: dict[str, JobAnalysis] = {}
 
 
 def _validate_pdf_file(file: UploadFile, field_label: str) -> None:
@@ -51,9 +58,21 @@ async def analyze_match(
         resume_text = extract_text_from_pdf(resume_bytes)
         jd_text = extract_text_from_pdf(jd_bytes)
 
-        # Execute sequentially to avoid concurrent TPM/RPM burst limit errors on LLM provider
-        cv_analysis = await asyncio.to_thread(cv_agent.analyze, resume_text)
-        job_analysis = await asyncio.to_thread(job_agent.analyze, jd_text)
+        # Hash text to ensure 100% deterministic re-use for identical documents
+        resume_hash = hashlib.sha256(resume_text.strip().encode("utf-8")).hexdigest()
+        jd_hash = hashlib.sha256(jd_text.strip().encode("utf-8")).hexdigest()
+
+        if resume_hash in _cv_cache:
+            cv_analysis = _cv_cache[resume_hash]
+        else:
+            cv_analysis = await asyncio.to_thread(cv_agent.analyze, resume_text)
+            _cv_cache[resume_hash] = cv_analysis
+
+        if jd_hash in _job_cache:
+            job_analysis = _job_cache[jd_hash]
+        else:
+            job_analysis = await asyncio.to_thread(job_agent.analyze, jd_text)
+            _job_cache[jd_hash] = job_analysis
 
         match_result = calculate_match(job_analysis, cv_analysis)
 

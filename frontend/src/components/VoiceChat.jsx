@@ -19,46 +19,9 @@ export default function VoiceChat({ context, onClose }) {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, status]);
 
-  // Initialize Speech Recognition & Greeting
+  // Initialize Greeting and Cleanup
   useEffect(() => {
     isComponentMounted.current = true;
-
-    // Set up Web Speech Recognition
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = 'en-US';
-
-      recognition.onstart = () => {
-        if (isComponentMounted.current) {
-          setStatus('listening');
-        }
-      };
-
-      recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        if (transcript && transcript.trim()) {
-          handleSendMessage(transcript.trim());
-        }
-      };
-
-      recognition.onerror = (event) => {
-        console.warn('Speech recognition error:', event.error);
-        if (isComponentMounted.current && status === 'listening') {
-          setStatus('idle');
-        }
-      };
-
-      recognition.onend = () => {
-        if (isComponentMounted.current && status === 'listening') {
-          setStatus('idle');
-        }
-      };
-
-      recognitionRef.current = recognition;
-    }
 
     // Load initial personalized greeting
     if (!hasFetchedGreetingRef.current) {
@@ -126,9 +89,13 @@ export default function VoiceChat({ context, onClose }) {
     utterance.onend = () => {
       if (isComponentMounted.current) {
         setStatus('idle');
-        // Auto-listen after greeting if mic available
-        if (recognitionRef.current && !isMuted) {
-          startListening();
+        // Auto-listen after speech completes if unmuted
+        if (!isMuted) {
+          setTimeout(() => {
+            if (isComponentMounted.current) {
+              startListening();
+            }
+          }, 300);
         }
       }
     };
@@ -148,24 +115,77 @@ export default function VoiceChat({ context, onClose }) {
     }
   };
 
-  const startListening = () => {
-    if (!recognitionRef.current) {
-      setErrorMsg('Speech recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge.');
-      return;
-    }
-    stopSpeaking();
-    try {
-      recognitionRef.current.start();
-    } catch (err) {
-      // Already running or permission issue
-    }
-  };
-
   const stopListening = () => {
     if (recognitionRef.current) {
       try {
-        recognitionRef.current.stop();
+        recognitionRef.current.abort();
       } catch (err) {}
+      recognitionRef.current = null;
+    }
+    if (isComponentMounted.current) {
+      setStatus((prev) => (prev === 'listening' ? 'idle' : prev));
+    }
+  };
+
+  const startListening = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setErrorMsg('Speech recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge.');
+      return;
+    }
+
+    stopSpeaking();
+
+    // Clean up previous recognition instance if still active
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.abort();
+      } catch (err) {}
+      recognitionRef.current = null;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+
+      recognition.onstart = () => {
+        if (isComponentMounted.current) {
+          setStatus('listening');
+        }
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0]?.[0]?.transcript;
+        if (transcript && transcript.trim()) {
+          handleSendMessage(transcript.trim());
+        }
+      };
+
+      recognition.onerror = (event) => {
+        console.warn('Speech recognition error:', event.error);
+        if (isComponentMounted.current) {
+          if (event.error !== 'no-speech' && event.error !== 'aborted') {
+            setErrorMsg(`Mic note (${event.error}). Please click Push to Talk.`);
+          }
+          setStatus((prev) => (prev === 'listening' ? 'idle' : prev));
+        }
+      };
+
+      recognition.onend = () => {
+        if (isComponentMounted.current) {
+          setStatus((prev) => (prev === 'listening' ? 'idle' : prev));
+        }
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err) {
+      console.warn('Speech recognition start failed:', err);
+      if (isComponentMounted.current) {
+        setStatus((prev) => (prev === 'listening' ? 'idle' : prev));
+      }
     }
   };
 

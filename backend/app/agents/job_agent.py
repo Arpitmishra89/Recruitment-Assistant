@@ -9,15 +9,17 @@ Extract information from the supplied job description.
 Return a valid JSON object with these fields:
 - job_title: string
 - company: string or null
-- required_skills: list of explicitly required skills
-- preferred_skills: list of preferred or optional skills
+- required_skills: list of explicitly required technical skills
+- preferred_skills: list of preferred or optional technical skills
 - responsibilities: list of job responsibilities
-- qualifications: list of education or experience requirements
+- qualifications: list of education, experience, and general requirements
 
-Rules:
+Rules for Skills Extraction:
+- In 'required_skills' and 'preferred_skills', include ONLY concrete technical skills, programming languages, frameworks, libraries, databases, and developer tools (e.g., 'Python', 'React', 'SQL', 'TypeScript', 'Docker', 'Next.js', 'Node.js', 'Git').
+- NEVER extract vague phrases, soft skills, or generic competencies (such as 'strong programming fundamentals', 'good problem solver', 'excellent communication', 'quick learner', 'team player', 'attention to detail') as skills. Put these under 'qualifications' or 'responsibilities'.
+- Keep skill names concise, using canonical technical names (e.g. 'Node.js', 'PostgreSQL', 'React').
 - Do not invent information absent from the description.
 - Do not classify a skill as required unless the description indicates it is mandatory.
-- Keep skills concise and use common technical names.
 - If the job title or company is unavailable, use "Not specified" or null.
 """
 

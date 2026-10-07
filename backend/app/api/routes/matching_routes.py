@@ -51,10 +51,9 @@ async def analyze_match(
         resume_text = extract_text_from_pdf(resume_bytes)
         jd_text = extract_text_from_pdf(jd_bytes)
 
-        cv_analysis, job_analysis = await asyncio.gather(
-            asyncio.to_thread(cv_agent.analyze, resume_text),
-            asyncio.to_thread(job_agent.analyze, jd_text)
-        )
+        # Execute sequentially to avoid concurrent TPM/RPM burst limit errors on LLM provider
+        cv_analysis = await asyncio.to_thread(cv_agent.analyze, resume_text)
+        job_analysis = await asyncio.to_thread(job_agent.analyze, jd_text)
 
         match_result = calculate_match(job_analysis, cv_analysis)
 

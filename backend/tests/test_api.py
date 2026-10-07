@@ -118,6 +118,28 @@ def test_voice_greeting(mock_chat):
 
 
 @patch("app.api.routes.voice_routes.llm_service.chat_completion")
+def test_voice_greeting_fallback_on_llm_failure(mock_chat):
+    mock_chat.side_effect = ValueError("The LLM returned an empty response.")
+    response = client.post(
+        "/api/v1/voice/greeting",
+        json={
+            "candidate_name": "Alex Mercer",
+            "job_title": "Senior Backend Engineer",
+            "company": "Acme Corp",
+            "match_score": 90.0,
+            "matched_skills": ["Python", "FastAPI"],
+            "missing_skills": ["AWS"],
+            "recommendations": []
+        }
+    )
+    assert response.status_code == 200
+    reply = response.json()["reply"]
+    assert "Alex Mercer" in reply
+    assert "90.0%" in reply
+    assert "Senior Backend Engineer" in reply
+
+
+@patch("app.api.routes.voice_routes.llm_service.chat_completion")
 def test_voice_chat(mock_chat):
     mock_chat.return_value = "You can highlight your Docker and cloud deployment experience to bridge the AWS gap."
     response = client.post(

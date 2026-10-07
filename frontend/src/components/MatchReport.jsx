@@ -99,7 +99,7 @@ export default function MatchReport({ result, onStartVoice }) {
         <div className="voice-cta-left">
           <div className="voice-cta-badge">
             <span className="pulse-dot"></span>
-            Interactive Voice AI • Zero Audio Cost
+            Interactive Voice AI
           </div>
           <h3 className="voice-cta-title">Interact with the AI Recruiter Voice Agent</h3>
           <p className="voice-cta-desc">

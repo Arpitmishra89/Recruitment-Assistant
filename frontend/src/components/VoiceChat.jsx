@@ -12,6 +12,7 @@ export default function VoiceChat({ context, onClose }) {
   const synthRef = useRef(window.speechSynthesis || null);
   const chatBottomRef = useRef(null);
   const isComponentMounted = useRef(true);
+  const hasFetchedGreetingRef = useRef(false);
 
   // Auto-scroll chat
   useEffect(() => {
@@ -60,7 +61,9 @@ export default function VoiceChat({ context, onClose }) {
     }
 
     // Load initial personalized greeting
-    loadInitialGreeting();
+    if (!hasFetchedGreetingRef.current) {
+      loadInitialGreeting();
+    }
 
     return () => {
       isComponentMounted.current = false;
@@ -70,6 +73,8 @@ export default function VoiceChat({ context, onClose }) {
   }, []);
 
   const loadInitialGreeting = async () => {
+    if (hasFetchedGreetingRef.current) return;
+    hasFetchedGreetingRef.current = true;
     setStatus('thinking');
     setErrorMsg(null);
     try {
@@ -81,7 +86,10 @@ export default function VoiceChat({ context, onClose }) {
       speakText(greeting);
     } catch (err) {
       if (isComponentMounted.current) {
-        setErrorMsg('Failed to load greeting: ' + err.message);
+        // Do not display error if greeting message is already present
+        if (messages.length === 0) {
+          setErrorMsg('Failed to load greeting: ' + err.message);
+        }
         setStatus('idle');
       }
     }

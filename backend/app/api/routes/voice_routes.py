@@ -1,6 +1,9 @@
+import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from app.services.llm_service import llm_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/voice", tags=["Voice"])
 
@@ -72,10 +75,15 @@ async def generate_voice_greeting(req: VoiceGreetingRequest):
         return VoiceResponse(reply=cleaned_reply)
 
     except Exception as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Failed to generate voice greeting: {str(exc)}"
+        logger.warning("Voice greeting generation encountered error: %s. Using graceful fallback greeting.", str(exc))
+        name = req.candidate_name or "there"
+        company_phrase = f"at {req.company}" if req.company else ""
+        skills_phrase = f", with strong skills in {', '.join(req.matched_skills[:3])}" if req.matched_skills else ""
+        fallback_reply = (
+            f"Hi {name}, welcome! You're a {req.match_score:.1f}% match for the {req.job_title} role {company_phrase}"
+            f"{skills_phrase}. Feel free to ask any questions or practice interview scenarios with me."
         )
+        return VoiceResponse(reply=fallback_reply)
 
 
 @router.post("/chat", response_model=VoiceResponse)

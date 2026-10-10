@@ -29,11 +29,11 @@ export async function analyzeMatch(resumeFile, jdFile) {
   return await response.json();
 }
 
-export async function fetchVoiceGreeting(context) {
+export async function fetchVoiceGreeting(context = {}) {
   const response = await fetch(`${API_BASE_URL}/voice/greeting`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(context),
+    body: JSON.stringify(context || {}),
   });
 
   if (!response.ok) {
@@ -49,12 +49,12 @@ export async function fetchVoiceGreeting(context) {
   return data;
 }
 
-export async function sendVoiceMessage(context, userMessage, conversationHistory = []) {
+export async function sendVoiceMessage(context = {}, userMessage, conversationHistory = []) {
   const response = await fetch(`${API_BASE_URL}/voice/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      ...context,
+      ...(context || {}),
       user_message: userMessage,
       conversation_history: conversationHistory,
     }),

@@ -170,3 +170,33 @@ def test_voice_transcribe(mock_transcribe):
     assert response.status_code == 200
     assert response.json()["transcript"] == "Hello, what skills am I missing?"
 
+
+@patch("app.api.routes.voice_routes.llm_service.chat_completion")
+def test_voice_initial_landing_greeting(mock_chat):
+    mock_chat.return_value = (
+        "Hello! I am your AI career assistant. I'm here to clear all your job-related doubts, "
+        "analyze your resume against job requirements, and help you fill out job applications automatically. Feel free to ask me anything!"
+    )
+    response = client.post(
+        "/api/v1/voice/greeting",
+        json={}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "clear all your job-related doubts" in data["reply"].lower()
+    assert "feel free to ask" in data["reply"].lower()
+
+
+@patch("app.api.routes.voice_routes.llm_service.chat_completion")
+def test_voice_general_career_chat(mock_chat):
+    mock_chat.return_value = "To learn Next.js, start by building a small project using the App Router and Server Components."
+    response = client.post(
+        "/api/v1/voice/chat",
+        json={
+            "user_message": "How do I learn Next.js?"
+        }
+    )
+    assert response.status_code == 200
+    assert "Next.js" in response.json()["reply"]
+
+

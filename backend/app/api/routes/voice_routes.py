@@ -13,9 +13,9 @@ router = APIRouter(prefix="/api/v1/voice", tags=["Voice"])
 
 class VoiceContext(BaseModel):
     candidate_name: str | None = None
-    job_title: str
+    job_title: str | None = None
     company: str | None = None
-    match_score: float = Field(ge=0, le=100)
+    match_score: float | None = Field(default=None, ge=0, le=100)
     matched_skills: list[str] = Field(default_factory=list)
     missing_skills: list[str] = Field(default_factory=list)
     recommendations: list[str] = Field(default_factory=list)
@@ -51,36 +51,57 @@ class TranscribeResponse(BaseModel):
 
 def _build_system_prompt(ctx: VoiceContext) -> str:
     name_str = ctx.candidate_name or "Candidate"
-    company_str = f"at {ctx.company}" if ctx.company else ""
-    matched_sample = ", ".join(ctx.matched_skills[:4]) if ctx.matched_skills else "none noted yet"
-    missing_sample = ", ".join(ctx.missing_skills[:4]) if ctx.missing_skills else "no major gaps"
+
+    if ctx.job_title:
+        company_str = f"at {ctx.company}" if ctx.company else ""
+        score_str = f"Match Score: {ctx.match_score:.1f}%\n" if ctx.match_score is not None else ""
+        matched_sample = ", ".join(ctx.matched_skills[:4]) if ctx.matched_skills else "none noted yet"
+        missing_sample = ", ".join(ctx.missing_skills[:4]) if ctx.missing_skills else "no major gaps"
+
+        context_str = f"""Target Role: {ctx.job_title} {company_str}
+{score_str}Matched Skills: {matched_sample}
+Missing / Gap Skills: {missing_sample}"""
+    else:
+        context_str = """General Mode: You are a friendly, expert AI Career Assistant & Job Application Co-Pilot.
+Your core capabilities include:
+1. Clearing all job-related doubts (career paths, interview questions, tech stacks, roadmaps).
+2. Asking for job posting links or scanning opportunities to identify roles and responsibilities.
+3. Analyzing the candidate's resume against job requirements to reveal missing skills.
+4. Assisting in filling out online job applications automatically.
+5. Inviting candidates warmly with: 'Feel free to ask me anything!'"""
 
     return f"""You are an expert AI Technical Recruiter and Career Coach having a real-time voice conversation with {name_str}.
-Target Role: {ctx.job_title} {company_str}
-Match Score: {ctx.match_score}%
-Matched Skills: {matched_sample}
-Missing / Gap Skills: {missing_sample}
+{context_str}
 
 CRITICAL RULES FOR VOICE CONVERSATION:
 1. Your response will be spoken aloud to the candidate via Text-to-Speech.
-2. Keep your answer brief and conversational: strictly 1 to 3 sentences (maximum 45 words).
-3. Do NOT use markdown symbols, asterisks, bullet points, numbered lists, or URLs.
+2. Keep your answer brief, conversational, and impactful: strictly 1 to 3 sentences (maximum 50 words).
+3. Do NOT use markdown symbols, asterisks, bullet points, numbered lists, emojis, or URLs.
 4. Speak warmly, naturally, and professionally like an experienced mentor.
-5. Provide actionable guidance on their alignment, interview questions, or how to address skill gaps."""
+5. If the user mentions applying for a job, welcome their interest and invite them to share the job posting link.
+6. If the user asks how to learn a skill (like Next.js), provide an encouraging, high-yield first step or roadmap.
+7. Always invite them with: feel free to ask!"""
 
 
 @router.post("/greeting", response_model=VoiceResponse)
 async def generate_voice_greeting(req: VoiceGreetingRequest):
     try:
         name = req.candidate_name or "there"
-        company_phrase = f"at {req.company}" if req.company else ""
         system_prompt = _build_system_prompt(req)
 
-        user_prompt = (
-            f"Generate a warm, natural 2-sentence voice greeting welcoming {name}. "
-            f"Mention their {req.match_score}% match score for the {req.job_title} position {company_phrase}, "
-            f"acknowledge their strong skills and key gaps, and invite them to ask any questions or practice interview questions."
-        )
+        if req.job_title and req.match_score is not None:
+            company_phrase = f"at {req.company}" if req.company else ""
+            user_prompt = (
+                f"Generate a warm, natural 2-sentence voice greeting welcoming {name}. "
+                f"Mention their {req.match_score}% match score for the {req.job_title} position {company_phrase}, "
+                f"acknowledge their strong skills and key gaps, and invite them to ask any questions or practice interview questions."
+            )
+        else:
+            user_prompt = (
+                f"Generate a friendly, natural 2-sentence voice greeting welcoming {name}. "
+                f"Explain clearly that you are here to clear all their job-related doubts, analyze their resume against job requirements, "
+                f"and even help fill out job applications automatically. End by inviting them: feel free to ask!"
+            )
 
         reply = llm_service.chat_completion(
             system_prompt=system_prompt,
@@ -103,12 +124,20 @@ async def generate_voice_greeting(req: VoiceGreetingRequest):
     except Exception as exc:
         logger.warning("Voice greeting generation encountered error: %s. Using graceful fallback greeting.", str(exc))
         name = req.candidate_name or "there"
-        company_phrase = f"at {req.company}" if req.company else ""
-        skills_phrase = f", with strong skills in {', '.join(req.matched_skills[:3])}" if req.matched_skills else ""
-        fallback_reply = (
-            f"Hi {name}, welcome! You're a {req.match_score:.1f}% match for the {req.job_title} role {company_phrase}"
-            f"{skills_phrase}. Feel free to ask any questions or practice interview scenarios with me."
-        )
+
+        if req.job_title and req.match_score is not None:
+            company_phrase = f"at {req.company}" if req.company else ""
+            skills_phrase = f", with strong skills in {', '.join(req.matched_skills[:3])}" if req.matched_skills else ""
+            fallback_reply = (
+                f"Hi {name}, welcome! You're a {req.match_score:.1f}% match for the {req.job_title} role {company_phrase}"
+                f"{skills_phrase}. Feel free to ask any questions or practice interview scenarios with me."
+            )
+        else:
+            fallback_reply = (
+                f"Hello {name}, welcome! I'm here to clear all your job-related doubts, analyze your resume against job requirements, "
+                f"and help you fill out job applications automatically. Feel free to ask me anything!"
+            )
+
         audio_b64 = None
         if tts_service.is_available():
             try:

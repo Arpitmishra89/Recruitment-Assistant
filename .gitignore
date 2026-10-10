@@ -17,3 +17,9 @@ dist/
 .pytest_cache/
 pytest-cache-files-*
 .coverage
+
+# Models & Weights
+models/
+backend/models/
+*.onnx
+*.bin

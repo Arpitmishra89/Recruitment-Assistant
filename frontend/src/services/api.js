@@ -46,7 +46,7 @@ export async function fetchVoiceGreeting(context) {
   }
 
   const data = await response.json();
-  return data.reply;
+  return data;
 }
 
 export async function sendVoiceMessage(context, userMessage, conversationHistory = []) {
@@ -70,7 +70,27 @@ export async function sendVoiceMessage(context, userMessage, conversationHistory
   }
 
   const data = await response.json();
-  return data.reply;
+  return data;
+}
+
+export async function synthesizeVoiceSpeech(text, voice = null, speed = null) {
+  const response = await fetch(`${API_BASE_URL}/voice/synthesize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, voice, speed }),
+  });
+
+  if (!response.ok) {
+    let detail = 'Failed to synthesize speech.';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {}
+    throw new Error(detail);
+  }
+
+  const data = await response.json();
+  return data.audio_base64;
 }
 
 export async function transcribeVoiceAudio(audioBlob) {

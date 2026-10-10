@@ -13,6 +13,7 @@ export default function VoiceChat({ context, onClose }) {
   const audioStreamRef = useRef(null);
   const audioContextRef = useRef(null);
   const vadIntervalRef = useRef(null);
+  const currentAudioRef = useRef(null);
   const synthRef = useRef(window.speechSynthesis || null);
   const chatBottomRef = useRef(null);
   const isComponentMounted = useRef(true);
@@ -59,12 +60,15 @@ export default function VoiceChat({ context, onClose }) {
     setStatus('thinking');
     setErrorMsg(null);
     try {
-      const greeting = await fetchVoiceGreeting(context);
+      const result = await fetchVoiceGreeting(context);
       if (!isComponentMounted.current) return;
 
-      const welcomeMsg = { role: 'assistant', content: greeting };
+      const greetingText = typeof result === 'string' ? result : (result.reply || '');
+      const audioBase64 = typeof result === 'object' ? result.audio_base64 : null;
+
+      const welcomeMsg = { role: 'assistant', content: greetingText };
       setMessages([welcomeMsg]);
-      speakText(greeting);
+      speakText(greetingText, audioBase64);
     } catch (err) {
       if (isComponentMounted.current) {
         // Do not display error if greeting message is already present
@@ -76,19 +80,67 @@ export default function VoiceChat({ context, onClose }) {
     }
   };
 
-  const speakText = (text) => {
+  const playKokoroAudio = (audioBase64, text) => {
+    if (isMuted) {
+      setStatus('idle');
+      return;
+    }
+
+    stopSpeaking();
+
+    try {
+      const audioUrl = `data:audio/wav;base64,${audioBase64}`;
+      const audio = new Audio(audioUrl);
+      currentAudioRef.current = audio;
+
+      audio.onplay = () => {
+        if (isComponentMounted.current) {
+          setStatus('speaking');
+        }
+      };
+
+      audio.onended = () => {
+        if (isComponentMounted.current) {
+          currentAudioRef.current = null;
+          setStatus('idle');
+          if (!isMuted) {
+            setTimeout(() => {
+              if (isComponentMounted.current) {
+                startListening();
+              }
+            }, 400);
+          }
+        }
+      };
+
+      audio.onerror = (err) => {
+        console.warn('Kokoro audio playback error, falling back to browser speech:', err);
+        currentAudioRef.current = null;
+        speakWithBrowserSpeech(text);
+      };
+
+      audio.play().catch((playErr) => {
+        console.warn('Kokoro audio autoplay interrupted or prevented:', playErr);
+        speakWithBrowserSpeech(text);
+      });
+    } catch (err) {
+      console.warn('Kokoro Audio initialization failed:', err);
+      speakWithBrowserSpeech(text);
+    }
+  };
+
+  const speakWithBrowserSpeech = (text) => {
     if (!synthRef.current || isMuted) {
       setStatus('idle');
       return;
     }
 
-    synthRef.current.cancel(); // Stop any ongoing speech
+    synthRef.current.cancel();
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 1.0;
     utterance.pitch = 1.0;
 
-    // Pick best English voice if available
     const voices = synthRef.current.getVoices();
     const naturalVoice = voices.find(
       (v) => (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Jenny')) && v.lang.startsWith('en')
@@ -107,7 +159,6 @@ export default function VoiceChat({ context, onClose }) {
     utterance.onend = () => {
       if (isComponentMounted.current) {
         setStatus('idle');
-        // Automatically re-arm mic hands-free after recruiter finishes speaking
         if (!isMuted) {
           setTimeout(() => {
             if (isComponentMounted.current) {
@@ -127,7 +178,23 @@ export default function VoiceChat({ context, onClose }) {
     synthRef.current.speak(utterance);
   };
 
+  const speakText = (text, audioBase64 = null) => {
+    if (audioBase64) {
+      playKokoroAudio(audioBase64, text);
+    } else {
+      speakWithBrowserSpeech(text);
+    }
+  };
+
   const stopSpeaking = () => {
+    if (currentAudioRef.current) {
+      try {
+        currentAudioRef.current.pause();
+        currentAudioRef.current.currentTime = 0;
+        currentAudioRef.current.src = '';
+      } catch (err) { }
+      currentAudioRef.current = null;
+    }
     if (synthRef.current) {
       synthRef.current.cancel();
     }
@@ -304,12 +371,15 @@ export default function VoiceChat({ context, onClose }) {
     setErrorMsg(null);
 
     try {
-      const reply = await sendVoiceMessage(context, text.trim(), updatedMessages);
+      const result = await sendVoiceMessage(context, text.trim(), updatedMessages);
       if (!isComponentMounted.current) return;
 
-      const assistantMessage = { role: 'assistant', content: reply };
+      const replyText = typeof result === 'string' ? result : (result.reply || '');
+      const audioBase64 = typeof result === 'object' ? result.audio_base64 : null;
+
+      const assistantMessage = { role: 'assistant', content: replyText };
       setMessages((prev) => [...prev, assistantMessage]);
-      speakText(reply);
+      speakText(replyText, audioBase64);
     } catch (err) {
       if (isComponentMounted.current) {
         setErrorMsg('Error: ' + err.message);
@@ -340,7 +410,10 @@ export default function VoiceChat({ context, onClose }) {
           <div className="voice-header-info">
             <span className="pulse-dot"></span>
             <div>
-              <h2 className="voice-header-title">AI Recruiter & Career Coach</h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <h2 className="voice-header-title">AI Recruiter & Career Coach</h2>
+                <span className="voice-engine-badge">Kokoro Neural TTS</span>
+              </div>
               <span className="voice-header-sub">
                 Target: {context.job_title} • {context.match_score}% Match
               </span>

@@ -7,3 +7,5 @@ pydantic-settings
 python-dotenv
 pymupdf
 pytest
+kokoro-onnx
+soundfile

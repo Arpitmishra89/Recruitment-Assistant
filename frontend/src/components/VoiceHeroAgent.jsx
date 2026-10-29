@@ -1,12 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { fetchVoiceGreeting, sendVoiceMessage, transcribeVoiceAudio } from '../services/api';
+import {
+  fetchVoiceGreeting,
+  sendVoiceMessage,
+  transcribeVoiceAudio,
+  crawlJobPosting,
+  evaluateCrawledMatch,
+} from '../services/api';
 
 const QUICK_PROMPTS = [
   "I want to apply for a job",
   "How do I learn Next.js?",
   "Analyze my resume against a job",
-  "How does automated application filling work?",
   "What projects should I build to stand out?",
+  "How does automated application filling work?",
 ];
 
 export default function VoiceHeroAgent({ initialContext = null, onJobLinkDetected = null, onRequestResumeUpload = null }) {
@@ -17,6 +23,14 @@ export default function VoiceHeroAgent({ initialContext = null, onJobLinkDetecte
   const [isMuted, setIsMuted] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
 
+  // Phase 2 state
+  const [crawledJob, setCrawledJob] = useState(null);
+  const [gapResult, setGapResult] = useState(null);
+  const [showJobLinkInput, setShowJobLinkInput] = useState(false);
+  const [jobUrlInput, setJobUrlInput] = useState('');
+  const [showResumeDropzone, setShowResumeDropzone] = useState(false);
+  const [isUploadingResume, setIsUploadingResume] = useState(false);
+
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const audioStreamRef = useRef(null);
@@ -26,13 +40,14 @@ export default function VoiceHeroAgent({ initialContext = null, onJobLinkDetecte
   const synthRef = useRef(typeof window !== 'undefined' ? window.speechSynthesis || null : null);
   const chatBottomRef = useRef(null);
   const isComponentMounted = useRef(true);
+  const fileInputRef = useRef(null);
 
   // Auto-scroll chat stream
   useEffect(() => {
     if (isSessionActive) {
       chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, status, isSessionActive]);
+  }, [messages, status, isSessionActive, showJobLinkInput, showResumeDropzone]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -225,7 +240,6 @@ export default function VoiceHeroAgent({ initialContext = null, onJobLinkDetecte
           setStatus('listening');
         }
 
-        // Voice Activity Detection (VAD) via AudioContext
         try {
           const AudioContextClass = window.AudioContext || window.webkitAudioContext;
           if (AudioContextClass) {
@@ -350,6 +364,104 @@ export default function VoiceHeroAgent({ initialContext = null, onJobLinkDetecte
     }
   };
 
+  // Phase 2: Execute Job Crawl
+  const executeCrawlJob = async (url) => {
+    if (!url || !url.trim()) return;
+
+    stopSpeaking();
+    stopListening();
+    setErrorMsg(null);
+
+    const userUrlMsg = { role: 'user', content: `Please scan this job posting: ${url.trim()}` };
+    const updatedMessages = [...messages, userUrlMsg];
+    setMessages(updatedMessages);
+    setShowJobLinkInput(false);
+    setJobUrlInput('');
+    setStatus('thinking');
+
+    try {
+      const jobData = await crawlJobPosting(url.trim());
+      if (!isComponentMounted.current) return;
+
+      setCrawledJob(jobData);
+      setShowResumeDropzone(true);
+
+      const jobMsg = {
+        role: 'assistant',
+        content: jobData.verbal_summary,
+        type: 'crawled_job',
+        jobData: jobData,
+      };
+
+      setMessages([...updatedMessages, jobMsg]);
+      speakText(jobData.verbal_summary, jobData.audio_base64);
+    } catch (err) {
+      if (isComponentMounted.current) {
+        setErrorMsg('Unable to crawl job posting: ' + err.message);
+        const errorReply = {
+          role: 'assistant',
+          content: `I could not scan that link (${err.message}). Could you share another link or use the sample role button?`
+        };
+        setMessages([...updatedMessages, errorReply]);
+        setStatus('idle');
+      }
+    }
+  };
+
+  // Phase 2: Execute Resume Alignment Evaluation
+  const executeResumeEvaluation = async (file) => {
+    if (!file || !crawledJob) return;
+
+    stopSpeaking();
+    stopListening();
+    setErrorMsg(null);
+    setIsUploadingResume(true);
+
+    const userUploadMsg = { role: 'user', content: `Uploaded candidate resume: ${file.name}` };
+    const updatedMessages = [...messages, userUploadMsg];
+    setMessages(updatedMessages);
+    setShowResumeDropzone(false);
+    setStatus('thinking');
+
+    try {
+      const matchData = await evaluateCrawledMatch(file, crawledJob);
+      if (!isComponentMounted.current) return;
+
+      setGapResult(matchData);
+      setIsUploadingResume(false);
+
+      const gapMsg = {
+        role: 'assistant',
+        content: matchData.verbal_summary,
+        type: 'gap_analysis',
+        gapData: matchData,
+      };
+
+      setMessages([...updatedMessages, gapMsg]);
+      speakText(matchData.verbal_summary, matchData.audio_base64);
+    } catch (err) {
+      if (isComponentMounted.current) {
+        setIsUploadingResume(false);
+        setErrorMsg('Failed to analyze resume alignment: ' + err.message);
+        setStatus('idle');
+      }
+    }
+  };
+
+  const handleUseSampleResume = async () => {
+    try {
+      setIsUploadingResume(true);
+      const res = await fetch('/sample_documents/sample_resume.pdf');
+      if (!res.ok) throw new Error('Sample resume file not found in public folder.');
+      const blob = await res.blob();
+      const sampleFile = new File([blob], 'sample_resume.pdf', { type: 'application/pdf' });
+      await executeResumeEvaluation(sampleFile);
+    } catch (err) {
+      setErrorMsg('Could not load sample resume: ' + err.message);
+      setIsUploadingResume(false);
+    }
+  };
+
   const handleSendMessage = async (textToSend) => {
     if (!textToSend || !textToSend.trim()) return;
 
@@ -357,22 +469,51 @@ export default function VoiceHeroAgent({ initialContext = null, onJobLinkDetecte
     stopListening();
     setErrorMsg(null);
 
-    const userMsg = { role: 'user', content: textToSend.trim() };
+    const trimmed = textToSend.trim();
+
+    // Check if user provided a URL
+    const urlMatch = trimmed.match(/https?:\/\/[^\s]+/i);
+    if (urlMatch) {
+      await executeCrawlJob(urlMatch[0]);
+      return;
+    }
+
+    // Check if user expresses intent to apply or share a job link
+    const lower = trimmed.toLowerCase();
+    if (lower.includes('apply for a job') || lower.includes('apply to a job') || lower.includes('job link') || lower.includes('job posting')) {
+      setShowJobLinkInput(true);
+      const userMsg = { role: 'user', content: trimmed };
+      const assistantPromptMsg = {
+        role: 'assistant',
+        content: "Great! Please paste the link to the job posting below, and I'll crawl the page to extract all roles and responsibilities for you."
+      };
+      setMessages([...messages, userMsg, assistantPromptMsg]);
+      setInputText('');
+      speakText(assistantPromptMsg.content, null);
+      return;
+    }
+
+    const userMsg = { role: 'user', content: trimmed };
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
     setInputText('');
     setStatus('thinking');
 
-    // Check if user pasted a link to a job posting
-    const urlMatch = textToSend.match(/https?:\/\/[^\s]+/i);
-    if (urlMatch && onJobLinkDetected) {
-      onJobLinkDetected(urlMatch[0]);
-    }
+    // Context including crawled job and gap results if available
+    const activeContext = {
+      ...(initialContext || {}),
+      ...(crawledJob ? { job_title: crawledJob.job_title, company: crawledJob.company } : {}),
+      ...(gapResult ? {
+        match_score: gapResult.match_score,
+        matched_skills: gapResult.matched_skills,
+        missing_skills: gapResult.missing_skills
+      } : {})
+    };
 
     try {
       const result = await sendVoiceMessage(
-        initialContext || {},
-        textToSend.trim(),
+        activeContext,
+        trimmed,
         updatedMessages
       );
 
@@ -392,13 +533,30 @@ export default function VoiceHeroAgent({ initialContext = null, onJobLinkDetecte
     }
   };
 
-  const handleResetSession = () => {
+  const handleEndSession = () => {
     stopSpeaking();
     stopListening();
+    cleanupVAD();
     setMessages([]);
     setIsSessionActive(false);
     setStatus('idle');
     setErrorMsg(null);
+    setCrawledJob(null);
+    setGapResult(null);
+    setShowJobLinkInput(false);
+    setShowResumeDropzone(false);
+  };
+
+  const handleRestartSession = () => {
+    stopSpeaking();
+    stopListening();
+    cleanupVAD();
+    setMessages([]);
+    setCrawledJob(null);
+    setGapResult(null);
+    setShowJobLinkInput(false);
+    setShowResumeDropzone(false);
+    handleActivateVoiceSession();
   };
 
   const toggleMute = () => {
@@ -408,6 +566,12 @@ export default function VoiceHeroAgent({ initialContext = null, onJobLinkDetecte
     } else {
       setIsMuted(false);
     }
+  };
+
+  const getScoreColor = (score) => {
+    if (score >= 75) return '#10b981';
+    if (score >= 50) return '#f59e0b';
+    return '#f43f5e';
   };
 
   return (
@@ -460,14 +624,6 @@ export default function VoiceHeroAgent({ initialContext = null, onJobLinkDetecte
             </button>
           </div>
 
-          <div className="mic-click-prompt">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-              <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-            </svg>
-            <span>Tap the mic to start your voice consultation</span>
-          </div>
-
           <div className="hero-features-row">
             <div className="hero-feature-chip">
               <span>🎙️</span> Natural Voice Dialogue
@@ -494,9 +650,6 @@ export default function VoiceHeroAgent({ initialContext = null, onJobLinkDetecte
               <span className="voice-status-pill live">
                 <span className="pulse-dot"></span> Live Voice Session
               </span>
-              <span className="voice-status-pill neural">
-                Kokoro Neural Voice
-              </span>
             </div>
             <div className="active-voice-header-actions">
               <button
@@ -510,10 +663,23 @@ export default function VoiceHeroAgent({ initialContext = null, onJobLinkDetecte
               <button
                 type="button"
                 className="btn-session-action"
-                onClick={handleResetSession}
+                onClick={handleRestartSession}
                 title="Restart conversation"
               >
-                🔄 Reset
+                🔄 Restart
+              </button>
+              <button
+                type="button"
+                className="btn-session-action btn-end-session"
+                onClick={handleEndSession}
+                title="End Voice Agent session and return to home"
+                id="end-voice-session-btn"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-6-6 19.86 19.86 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"></path>
+                  <line x1="23" y1="1" x2="1" y2="23"></line>
+                </svg>
+                <span>End Voice Agent</span>
               </button>
             </div>
           </div>
@@ -560,11 +726,214 @@ export default function VoiceHeroAgent({ initialContext = null, onJobLinkDetecte
                   {msg.role === 'assistant' ? 'AI Career Agent' : 'You'}
                 </div>
                 <div className="bubble-text">{msg.content}</div>
+
+                {/* Crawled Job Card Attachment */}
+                {msg.type === 'crawled_job' && msg.jobData && (
+                  <div className="crawled-job-card">
+                    <div className="crawled-job-header">
+                      <div>
+                        <div className="crawled-job-title">{msg.jobData.job_title}</div>
+                        <div className="crawled-job-company">🏢 {msg.jobData.company || 'Company'}</div>
+                      </div>
+                      <span className="badge-crawled-live">Scanned Live</span>
+                    </div>
+
+                    {msg.jobData.required_skills?.length > 0 && (
+                      <div>
+                        <div className="crawled-section-label">Required Skills</div>
+                        <div className="crawled-skills-row">
+                          {msg.jobData.required_skills.map((skill, i) => (
+                            <span key={i} className="crawled-skill-tag required">✓ {skill}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {msg.jobData.preferred_skills?.length > 0 && (
+                      <div>
+                        <div className="crawled-section-label">Preferred Skills</div>
+                        <div className="crawled-skills-row">
+                          {msg.jobData.preferred_skills.map((skill, i) => (
+                            <span key={i} className="crawled-skill-tag preferred">+ {skill}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {msg.jobData.responsibilities?.length > 0 && (
+                      <div>
+                        <div className="crawled-section-label">Key Responsibilities</div>
+                        <ul style={{ paddingLeft: '1.2rem', fontSize: '0.825rem', color: 'var(--text-muted)' }}>
+                          {msg.jobData.responsibilities.slice(0, 3).map((resp, i) => (
+                            <li key={i} style={{ marginBottom: '0.2rem' }}>{resp}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Gap Analysis Scorecard Attachment */}
+                {msg.type === 'gap_analysis' && msg.gapData && (
+                  <div className="chat-gap-scorecard">
+                    <div className="gap-score-header">
+                      <div
+                        className="gap-score-circle"
+                        style={{
+                          borderColor: getScoreColor(msg.gapData.match_score),
+                          color: getScoreColor(msg.gapData.match_score)
+                        }}
+                      >
+                        {msg.gapData.match_score}%
+                      </div>
+                      <div className="gap-score-meta">
+                        <h3>Candidate Alignment for {msg.gapData.job_title}</h3>
+                        <p>Evaluated against live extracted job requirements</p>
+                      </div>
+                    </div>
+
+                    <div className="gap-skills-columns">
+                      {/* Matched Skills */}
+                      <div className="gap-column matched">
+                        <div className="gap-column-title">
+                          <span>✓</span> Matched Skills ({msg.gapData.matched_skills?.length || 0})
+                        </div>
+                        <div className="gap-tags-list">
+                          {msg.gapData.matched_skills?.map((s, i) => (
+                            <span key={i} className="gap-tag matched">{s}</span>
+                          ))}
+                          {(!msg.gapData.matched_skills || msg.gapData.matched_skills.length === 0) && (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>None detected</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Missing Skills */}
+                      <div className="gap-column missing">
+                        <div className="gap-column-title">
+                          <span>⚠️</span> Missing Skills ({msg.gapData.missing_skills?.length || 0})
+                        </div>
+                        <div className="gap-tags-list">
+                          {msg.gapData.missing_skills?.map((s, i) => (
+                            <span key={i} className="gap-tag missing">✗ {s}</span>
+                          ))}
+                          {(!msg.gapData.missing_skills || msg.gapData.missing_skills.length === 0) && (
+                            <span style={{ fontSize: '0.75rem', color: '#34d399' }}>No major skill gaps!</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {msg.gapData.recommendations?.length > 0 && (
+                      <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.65rem' }}>
+                        <div className="crawled-section-label">Next Actionable Steps</div>
+                        <ul style={{ paddingLeft: '1.2rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                          {msg.gapData.recommendations.map((rec, i) => (
+                            <li key={i} style={{ marginBottom: '0.2rem' }}>{rec}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
+
+            {/* Inline Resume Upload Dropzone when agent asks for resume */}
+            {showResumeDropzone && (
+              <div className="inline-resume-box">
+                <input
+                  type="file"
+                  accept=".pdf"
+                  ref={fileInputRef}
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      executeResumeEvaluation(e.target.files[0]);
+                    }
+                  }}
+                />
+                <div className="inline-resume-title">📄 Upload Your Resume to Compare</div>
+                <p className="inline-resume-desc">
+                  Upload your candidate resume PDF to evaluate alignment against <strong>{crawledJob?.job_title || 'this role'}</strong> and hear what skills you're missing.
+                </p>
+                <div className="inline-resume-actions">
+                  <button
+                    type="button"
+                    className="btn-upload-resume"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploadingResume}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                      <polyline points="17 8 12 3 7 8"></polyline>
+                      <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                    <span>{isUploadingResume ? 'Analyzing Resume...' : 'Select Resume PDF'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn-use-sample-resume"
+                    onClick={handleUseSampleResume}
+                    disabled={isUploadingResume}
+                  >
+                    Use Sample Resume
+                  </button>
+                </div>
+              </div>
+            )}
+
             {errorMsg && <div className="voice-error-toast">{errorMsg}</div>}
             <div ref={chatBottomRef} />
           </div>
+
+          {/* Interactive Job URL Input Bar (When active) */}
+          {showJobLinkInput && (
+            <div className="job-link-input-bar">
+              <form
+                className="job-link-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  executeCrawlJob(jobUrlInput);
+                }}
+              >
+                <input
+                  type="url"
+                  className="job-url-input"
+                  placeholder="Paste job posting link (e.g. https://careers.example.com/job/123)..."
+                  value={jobUrlInput}
+                  onChange={(e) => setJobUrlInput(e.target.value)}
+                  disabled={status === 'thinking'}
+                  autoFocus
+                />
+                <button
+                  type="submit"
+                  className="btn-crawl-submit"
+                  disabled={!jobUrlInput.trim() || status === 'thinking'}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  </svg>
+                  <span>Scan Job</span>
+                </button>
+              </form>
+
+              <div className="sample-link-chips">
+                <span>Or test demo role:</span>
+                <button
+                  type="button"
+                  className="btn-sample-chip"
+                  onClick={() => {
+                    executeCrawlJob("https://careers.google.com/jobs/results/sample-frontend-engineer");
+                  }}
+                >
+                  Frontend Engineer Demo Link
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Quick Suggestion Chips */}
           <div className="quick-prompts-bar">
@@ -608,7 +977,7 @@ export default function VoiceHeroAgent({ initialContext = null, onJobLinkDetecte
               <input
                 type="text"
                 className="voice-text-input"
-                placeholder="Ask anything or say 'I want to apply for a job'..."
+                placeholder="Ask anything or paste job link / ask how to learn..."
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 disabled={status === 'thinking'}
@@ -647,6 +1016,20 @@ export default function VoiceHeroAgent({ initialContext = null, onJobLinkDetecte
                   <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
                 </svg>
               )}
+            </button>
+
+            <button
+              type="button"
+              className="btn-bottom-end"
+              onClick={handleEndSession}
+              title="End Voice Agent session"
+              id="bottom-end-session-btn"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-6-6 19.86 19.86 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"></path>
+                <line x1="23" y1="1" x2="1" y2="23"></line>
+              </svg>
+              <span>End Agent</span>
             </button>
           </div>
         </div>

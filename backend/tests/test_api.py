@@ -200,3 +200,66 @@ def test_voice_general_career_chat(mock_chat):
     assert "Next.js" in response.json()["reply"]
 
 
+def test_crawl_job_invalid_url():
+    response = client.post(
+        "/api/v1/jobs/crawl",
+        json={"url": "not-a-valid-url"}
+    )
+    assert response.status_code == 400
+
+
+@patch("app.api.routes.job_routes.job_crawler.crawl_and_analyze")
+def test_crawl_job_success(mock_crawl):
+    mock_crawl.return_value = JobAnalysis(
+        job_title="Full Stack Engineer",
+        company="Vercel",
+        required_skills=["Next.js", "React", "TypeScript"],
+        preferred_skills=["Tailwind CSS"],
+        responsibilities=["Develop next-generation web applications."],
+        qualifications=["3+ years experience with Next.js."]
+    )
+    response = client.post(
+        "/api/v1/jobs/crawl",
+        json={"url": "https://careers.vercel.com/jobs/12345"}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["job_title"] == "Full Stack Engineer"
+    assert data["company"] == "Vercel"
+    assert "Next.js" in data["required_skills"]
+    assert "verbal_summary" in data
+
+
+@patch("app.api.routes.matching_routes.cv_agent.analyze")
+def test_evaluate_crawled_job(mock_cv):
+    mock_cv.return_value = ResumeAnalysis(
+        candidate_name="Alex Mercer",
+        skills=["React", "TypeScript"],
+        experience=["Frontend Developer at Acme"],
+        projects=["Built React dashboard"]
+    )
+    dummy_pdf = _create_sample_pdf("Alex Mercer. Skills: React, TypeScript.")
+    job_payload = {
+        "job_title": "Full Stack Engineer",
+        "company": "Vercel",
+        "required_skills": ["Next.js", "React", "TypeScript"],
+        "preferred_skills": ["Tailwind CSS"],
+        "responsibilities": ["Develop web applications."],
+        "qualifications": ["Experience with Next.js."]
+    }
+
+    import json
+    response = client.post(
+        "/api/v1/matching/evaluate-crawled",
+        files={"resume_file": ("resume.pdf", io.BytesIO(dummy_pdf), "application/pdf")},
+        data={"job_data_json": json.dumps(job_payload)}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["candidate_name"] == "Alex Mercer"
+    assert "Next.js" in data["missing_skills"]
+    assert "React" in data["matched_skills"]
+    assert "verbal_summary" in data
+
+
+

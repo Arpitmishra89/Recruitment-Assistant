@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes.matching_routes import router as matching_router
 from app.api.routes.voice_routes import router as voice_router
+from app.api.routes.job_routes import router as job_router
 
 app = FastAPI(
     title="AI Recruitment Assistant",
@@ -33,3 +34,4 @@ def health_check():
 
 app.include_router(matching_router)
 app.include_router(voice_router)
+app.include_router(job_router)

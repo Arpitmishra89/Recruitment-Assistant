@@ -115,3 +115,44 @@ export async function transcribeVoiceAudio(audioBlob) {
   return data.transcript;
 }
 
+export async function crawlJobPosting(url) {
+  const response = await fetch(`${API_BASE_URL}/jobs/crawl`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url }),
+  });
+
+  if (!response.ok) {
+    let detail = 'Failed to crawl job link.';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {}
+    throw new Error(detail);
+  }
+
+  return await response.json();
+}
+
+export async function evaluateCrawledMatch(resumeFile, jobData) {
+  const formData = new FormData();
+  formData.append('resume_file', resumeFile);
+  formData.append('job_data_json', JSON.stringify(jobData));
+
+  const response = await fetch(`${API_BASE_URL}/matching/evaluate-crawled`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    let detail = 'Failed to evaluate resume alignment.';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {}
+    throw new Error(detail);
+  }
+
+  return await response.json();
+}
+
